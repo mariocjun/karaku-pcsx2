@@ -366,6 +366,11 @@ namespace
 				return Fail(id, -32602, "port must be 0 or 1 (no multitap)", alloc);
 			const auto* controller = Pad::GetControllerInfo(Pad::ControllerType::DualShock2);
 			Json result = Identity(alloc);
+			const bool connected = Pad::HasConnectedPad(static_cast<u8>(port));
+			result.AddMember("port", port, alloc);
+			result.AddMember("connected", connected, alloc);
+			if (method == "input.set" && !connected)
+				return Fail(id, -32020, "emulated pad is disconnected; input was not delivered", alloc);
 			if (method == "input.reset")
 				Pad::ResetControllerInputs(port);
 			else if (method == "input.set")
@@ -687,6 +692,9 @@ namespace
 		s_settings.ClearSection("Hotkeys");
 		for (u32 port = 0; port < 8; ++port)
 			Pad::ClearPortBindings(s_settings, port);
+		// The protocol exposes two physical ports; upstream defaults connect only P1.
+		s_settings.SetStringValue("Pad1", "Type", "DualShock2");
+		s_settings.SetStringValue("Pad2", "Type", "DualShock2");
 		s_settings.SetBoolValue("MemoryCards", "Slot1_Enable", false);
 		s_settings.SetBoolValue("MemoryCards", "Slot2_Enable", false);
 		VMManager::Internal::LoadStartupSettings();

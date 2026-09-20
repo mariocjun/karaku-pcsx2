@@ -104,6 +104,15 @@ event exit. A branch can include its delay slot. This does not implement IOP
 step or certify all exception/COP/VU paths. CPU watchpoints do not cover DMA.
 Frame advance replies only after returning paused at the requested VSync count.
 
+Both emulated ports are explicitly configured as DualShock2. Upstream defaults
+otherwise leave port 1 disconnected even when input binding writes succeed.
+`input.bindings`, `input.set` and `input.reset` identify `port` and `connected`;
+`input.set` rejects a disconnected pad with -32020. These settings are confined
+to the owned session. This AI-assisted change was measured on the local HD
+package: two-player character selection and movement through both ports,
+without game-memory writes. The exact executable hash is recorded in Caracu's
+session evidence; this is not a general game-compatibility certificate.
+
 Use the MIT Python process adapter in the separate Caracu repo, not copied core
 code. It journals commands, hashes the executable/media/BIOS, and disallows
 further commands after transport timeout because their outcome is uncertain.
