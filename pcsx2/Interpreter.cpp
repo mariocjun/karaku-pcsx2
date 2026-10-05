@@ -8,6 +8,8 @@
 #include "Cache.h"
 
 #include "DebugTools/Breakpoints.h"
+#include "DebugTools/CallTrace.h"
+#include "DebugTools/Step.h"
 
 #include "common/FastJmp.h"
 
@@ -23,6 +25,8 @@ static std::string disOut;
 static bool intExitExecution = false;
 static fastjmp_buf intJmpBuf;
 static u32 intLastBranchTo;
+static bool s_debug_step_active = false;
+static u32 s_debug_step_dispatched = 0;
 
 void intEventTest();
 
@@ -213,6 +217,8 @@ static void execI()
 
 	cpuBlockCycles += opcode.cycles * (2 - ((cpuRegs.CP0.n.Config >> 18) & 0x1));
 
+	if (s_debug_step_active)
+		++s_debug_step_dispatched;
 	opcode.interpret();
 }
 
@@ -307,13 +313,19 @@ namespace OpcodeImpl {
 // fixme: looking at the other branching code, shouldn't those _SetLinks in BGEZAL and such only be set
 // if the condition is true? --arcum42
 
+// Call graph recording happens before doBranch(): intEventTest() may leave through
+// fastjmp. cpuRegs.pc already points at the delay slot and cpuRegs.code is the jump.
 void J()
 {
+	if (CallTrace::g_recording) [[unlikely]]
+		CallTrace::Record(CallTrace::Kind::J, cpuRegs.pc - 4, _JumpTarget_, cpuRegs.code);
 	doBranch(_JumpTarget_);
 }
 
 void JAL()
 {
+	if (CallTrace::g_recording) [[unlikely]]
+		CallTrace::Record(CallTrace::Kind::Jal, cpuRegs.pc - 4, _JumpTarget_, cpuRegs.code);
 	// 0x3563b8 is the start address of the function that invalidate entry in TLB cache
 	if (EmuConfig.Gamefixes.GoemonTlbHack) {
 		if (_JumpTarget_ == 0x3563b8)
@@ -517,6 +529,8 @@ void BGEZALL()   // Branch if Rs >= 0 and link
 *********************************************************/
 void JR()
 {
+	if (CallTrace::g_recording && _Rs_ != 31) [[unlikely]]
+		CallTrace::Record(CallTrace::Kind::Jr, cpuRegs.pc - 4, cpuRegs.GPR.r[_Rs_].UL[0], cpuRegs.code);
 	// 0x33ad48 and 0x35060c are the return address of the function (0x356250) that populate the TLB cache
 	if (EmuConfig.Gamefixes.GoemonTlbHack) {
 		const u32 add = cpuRegs.GPR.r[_Rs_].UL[0];
@@ -529,6 +543,9 @@ void JR()
 void JALR()
 {
 	const u32 temp = cpuRegs.GPR.r[_Rs_].UL[0];
+
+	if (CallTrace::g_recording) [[unlikely]]
+		CallTrace::Record(CallTrace::Kind::Jalr, cpuRegs.pc - 4, temp, cpuRegs.code);
 
 	if (_Rd_)  _SetLink(_Rd_);
 
@@ -584,7 +601,41 @@ static void intSafeExitExecution()
 static void intCancelInstruction()
 {
 	// See execute function.
-	fastjmp_jmp(&intJmpBuf, 0);
+	fastjmp_jmp(&intJmpBuf, s_debug_step_active ? 2 : 0);
+}
+
+EEDebugStepResult ExecuteEEDebugStep()
+{
+	pxAssert(VMManager::GetState() == VMState::Paused && !s_debug_step_active);
+	R5900cpu* const previous_cpu = Cpu;
+	const bool previous_rec = EmuConfig.Cpu.Recompiler.EnableEE;
+	const bool previous_wait_loop = EmuConfig.Speedhacks.WaitLoop;
+	const u32 start_cycle = cpuRegs.cycle;
+	writebackCache();
+	Cpu = &intCpu;
+	EmuConfig.Cpu.Recompiler.EnableEE = false;
+	EmuConfig.Speedhacks.WaitLoop = false;
+	s_debug_step_active = true;
+	s_debug_step_dispatched = 0;
+	intExitExecution = false;
+
+	// intCpu.Step by itself has no valid jump context. Branch/event exits and
+	// instruction cancellation must land here, never in an old Execute stack.
+	const int reason = fastjmp_set(&intJmpBuf);
+	if (reason == 0)
+	{
+		execI();
+		if (cpuRegs.cycle == start_cycle)
+			intUpdateCPUCycles();
+	}
+
+	writebackCache();
+	s_debug_step_active = false;
+	intExitExecution = false;
+	Cpu = previous_cpu;
+	EmuConfig.Cpu.Recompiler.EnableEE = previous_rec;
+	EmuConfig.Speedhacks.WaitLoop = previous_wait_loop;
+	return {s_debug_step_dispatched, reason == 2, reason == 1};
 }
 
 static void intExecute()
