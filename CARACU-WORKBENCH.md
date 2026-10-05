@@ -41,6 +41,10 @@ From PowerShell, pass the bundle directory containing the archive and `deps`:
 identity is rejected before configuration; software installation is separate.
 The default output is `build-caracu-windows`. The script preserves the caller's
 PATH/INCLUDE/LIB/LIBPATH and console encoding, and does not run an emulator.
+It also restores the caller's PATHEXT after temporarily admitting native command
+extensions: a launcher that supplies only `.CPL` otherwise prevents PowerShell
+from capturing executable output. `tools/caracu/tests/test-build-windows-preflight.ps1
+-DependencyBundle <bundle>` verifies real discovery and restoration on success/error.
 It configures `ENABLE_QT_UI=OFF`, `USE_OPENGL=OFF`, `USE_VULKAN=OFF` and uses
 the native Ninja bundled with VS. Existing build trees are never cleaned.
 

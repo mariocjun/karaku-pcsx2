@@ -20,6 +20,17 @@ param(
     [switch]$Autoteste
 )
 
+# Some launchers pass PATHEXT=.CPL: PowerShell then opens even an explicit .exe
+# through file association instead of capturing its stdout/exit code. Restore
+# native command extensions for this invocation only, including preflight paths.
+$taskSavedPathExt = [Environment]::GetEnvironmentVariable('PATHEXT', 'Process')
+try {
+$taskExtensions = @($taskSavedPathExt -split ';' | Where-Object { $_ })
+foreach ($taskExtension in @('.COM', '.EXE', '.BAT', '.CMD')) {
+    if ($taskExtensions -notcontains $taskExtension) { $taskExtensions += $taskExtension }
+}
+$env:PATHEXT = $taskExtensions -join ';'
+
 $ErrorActionPreference = 'Stop'
 if ($CheckOnly -and $Autoteste) { throw 'Choose CheckOnly or Autoteste, not both.' }
 if ($PackageDirectory -and ($Target -ne 'caracu-ps2d' -or $CheckOnly -or $Autoteste)) {
@@ -141,5 +152,12 @@ try {
         } else {
             [Environment]::SetEnvironmentVariable($taskName, $taskSavedEnv[$taskName], 'Process')
         }
+    }
+}
+} finally {
+    if ($null -eq $taskSavedPathExt) {
+        Remove-Item Env:PATHEXT -ErrorAction SilentlyContinue
+    } else {
+        [Environment]::SetEnvironmentVariable('PATHEXT', $taskSavedPathExt, 'Process')
     }
 }
