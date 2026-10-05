@@ -83,10 +83,13 @@ foreach ($taskName in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
     $taskSavedEnv[$taskName] = [Environment]::GetEnvironmentVariable($taskName, 'Process')
 }
 $taskSavedEncoding = [Console]::OutputEncoding
+$taskSavedInputEncoding = [Console]::InputEncoding
 try {
     # MSVC emitted UTF-8 while CMake decoded its /showIncludes probe as CP850.
-    # Match the child console code page BEFORE the first compiler probe.
+    # CMake's ENCODING AUTO uses GetConsoleCP (input), not GetConsoleOutputCP.
+    # Align both code pages BEFORE the first compiler probe and restore both.
     # VSLANG=1033 alone does not help when only Portuguese resources are installed.
+    [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     $taskVcEnv = & $env:ComSpec /d /s /c "call `"$taskVcvars`" >nul && set"
     if ($LASTEXITCODE -ne 0) { throw 'vcvars64 failed.' }
@@ -143,6 +146,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'No-Qt package validation failed.' }
     }
 } finally {
+    [Console]::InputEncoding = $taskSavedInputEncoding
     [Console]::OutputEncoding = $taskSavedEncoding
     foreach ($taskName in $taskSavedEnv.Keys) {
         if ($null -eq $taskSavedEnv[$taskName]) {

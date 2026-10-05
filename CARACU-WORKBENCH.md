@@ -52,6 +52,9 @@ MSVC's Portuguese `/showIncludes` output exposed a CMake CP850/UTF-8 mismatch:
 the first builds recorded zero header dependencies. Merely setting VSLANG=1033
 did not fix this installation, which only has Portuguese language resources.
 The script aligns the console encoding before the initial CMake compiler probe.
+Both input and output encodings must agree: CMake's `ENCODING AUTO` decodes via
+`GetConsoleCP`, so changing only output leaves a mojibake include prefix and
+silently loses header dependencies. Both caller encodings are restored on exit.
 Use a **new build directory** when migrating from a corrupted compiler cache.
 `-Autoteste` generates an original isolated fixture: its output must change
 17 → 29 → 41 after two header-only edits, and Ninja must record `value.hpp`.
